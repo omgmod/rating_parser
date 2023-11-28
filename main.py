@@ -11,8 +11,8 @@ from models.match_player import MatchPlayer
 
 players_by_name = {}
 
-ALLIES = "ALLIES"
-AXIS = "AXIS"
+ALLIES = "Allies"
+AXIS = "Axis"
 
 doc_to_side = {
     "ALLY": ALLIES,
@@ -68,7 +68,6 @@ def update_sigma_decay(os_rating, ts_rating, weeks_since_last_played):
 
     return os_rating, ts_rating
 
-
 # Run rating update for the players in the match
 def process_match(match):
     match_date = match.date
@@ -76,10 +75,10 @@ def process_match(match):
     # Calculate sigma decay if necessary and update rating
     for match_player in match.allies_players + match.axis_players:
         weeks_since_last_played = match_player.weeks_since_last_played(match_date)
-        # os_rating, ts_rating = update_sigma_decay(match_player.os_rating, match_player.ts_rating,
-        #                                           weeks_since_last_played)
-        # match_player.os_rating = os_rating
-        # match_player.ts_rating = ts_rating
+        os_rating, ts_rating = update_sigma_decay(match_player.os_rating, match_player.ts_rating,
+                                                  weeks_since_last_played)
+        match_player.os_rating = os_rating
+        match_player.ts_rating = ts_rating
 
     # Build lists of team ratings
     # Rate the match using the model (first team is the winner)
@@ -115,6 +114,28 @@ def process_match(match):
         player.update_ts_rating(ts_rating)
         player.update_win_loss(match.winner != ALLIES)
 
+def get_min_max_mu(players):
+    os_min = 100
+    os_max = 0
+    ts_min = 100
+    ts_max = 0
+    for player in players:
+        os_mu = player.os_rating.mu
+        ts_mu = player.ts_rating.mu
+
+        os_min = min(os_mu, os_min)
+        os_max = max(os_mu, os_max)
+
+        ts_min = min(ts_mu, ts_min)
+        ts_max = max(ts_mu, ts_max)
+
+    return os_min, os_max, ts_min, ts_max
+
+def normalise_to_elo(mu, old_min, old_max):
+    new_min = 1000
+    new_max = 2000
+    return ((mu - old_min) / (old_max - old_min)) * (new_max - new_min) + new_min
+
 
 def parse_csv(filename):
     with open(f"{filename}", newline='') as csvfile:
@@ -123,9 +144,6 @@ def parse_csv(filename):
         matches = 0
         current_match = None
         for row in reader:
-            # if matches == 2:
-            #     break
-
             match_id, match_date, match_winner, match_player = handle_csv_row(row)
 
             # For first match in the dataset, current_match_id is None, skip
@@ -147,18 +165,22 @@ def parse_csv(filename):
 
     pprint(players_by_name)
 
-    with open('output.csv', 'w', newline='') as csvfile:
+    os_min, os_max, ts_min, ts_max = get_min_max_mu(list(players_by_name.values()))
+
+    with open('output-decay.csv', 'w', newline='') as csvfile:
         writer = csv.writer(csvfile, delimiter=',', quotechar='"', quoting=csv.QUOTE_MINIMAL)
         writer.writerow(
-            ["name", "games played", "wins", "losses", "last_played", "os_mu", "os_sigma", "os_rank", "ts_mu",
-             "ts_sigma"])
+            ["name", "games played", "wins", "losses", "last_played", "os_elo", "os_mu", "os_sigma", "os_rank",
+             "ts_elo", "ts_mu", "ts_sigma"])
         keys = list(players_by_name.keys())
         keys.sort()
         for key in keys:
             player = players_by_name[key]
+            os_elo = normalise_to_elo(player.os_rating.mu, os_min, os_max)
+            ts_elo = normalise_to_elo(player.ts_rating.mu, ts_min, ts_max)
             writer.writerow([player.name, player.games_played, player.wins, player.losses, player.last_played,
-                             player.os_rating.mu, player.os_rating.sigma, player.os_rating.ordinal(),
-                             player.ts_rating.mu, player.ts_rating.sigma])
+                             os_elo, player.os_rating.mu, player.os_rating.sigma, player.os_rating.ordinal(),
+                             ts_elo, player.ts_rating.mu, player.ts_rating.sigma])
 
 
 if __name__ == '__main__':

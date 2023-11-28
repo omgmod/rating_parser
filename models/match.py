@@ -8,7 +8,7 @@ class Match:
         self.date = date
 
     def add_player(self, match_player):
-        if match_player.side == "ALLIES":
+        if match_player.side == "Allies":
             self.allies_players.append(match_player)
         else:
             self.axis_players.append(match_player)
